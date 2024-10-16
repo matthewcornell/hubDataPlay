@@ -108,15 +108,15 @@ flusight_archive_schema = pa.schema([('origin_date', pa.date32()),
 
 projs_path = Path('/Users/cornell/IdeaProjects')
 hub_to_dir_schema_s3_tuple = {
-    'flusight': (projs_path / 'hubUtils/inst/testhubs/flusight',  # .csv, .parquet, .arrow
+    'flusight': (projs_path / 'hubUtils/inst/testhubs/flusight',  # .csv, .parquet, .arrow [292 rows x 8 columns]
                  flusight_schema, None),
-    'parquet': (projs_path / 'hubUtils/inst/testhubs/parquet',  # .parquet
+    'parquet': (projs_path / 'hubUtils/inst/testhubs/parquet',  # .parquet [599 rows x 9 columns]
                 parquet_schema, None),
-    'ecfh': (projs_path / 'example-complex-forecast-hub',  # .csv
+    'ecfh': (projs_path / 'example-complex-forecast-hub',  # .csv [553264 rows x 9 columns] (0.5M)
              ecfh_schema, 'example-complex-forecast-hub'),
-    'flusight_fhub': (projs_path / 'FluSight-forecast-hub',  # .csv
+    'flusight_fhub': (projs_path / 'FluSight-forecast-hub',  # .csv [5812608 rows x 9 columns] (5M)
                       flusight_fhub_schema, 'cdcepi-flusight-forecast-hub'),
-    'flusight_archive': (projs_path / 'flusight_hub_archive',  # .parquet
+    'flusight_archive': (projs_path / 'flusight_hub_archive',  # .parquet [29364474 rows x 9 columns] (29M)
                          flusight_archive_schema, 'uscdc-flusight-hub-v1'),
 }
 
@@ -126,11 +126,11 @@ hub_to_dir_schema_s3_tuple = {
 #
 
 def main():
-    # hub_name = 'flusight'  #         .csv, .parquet, and .arrow [292 rows x 8 columns]
-    # hub_name = 'parquet'  #          .parquet                   [599 rows x 9 columns]
-    hub_name = 'ecfh'  # _             .csv                       [553264 rows x 9 columns]  (0.5M)
-    # hub_name = 'flusight_fhub'  #    .csv                       [5812608 rows x 9 columns]   (5M)
-    # hub_name = 'flusight_archive'  # .parquet                   [29364474 rows x 9 columns] (29M)
+    # hub_name = 'flusight'
+    # hub_name = 'parquet'
+    # hub_name = 'ecfh'
+    hub_name = 'flusight_fhub'
+    # hub_name = 'flusight_archive'
 
     # get hub info. for now the schema is hard-coded, but we'll need to eventually extract it from `tasks.json` via a
     # Python version of https://hubverse-org.github.io/hubData/reference/create_hub_schema.html :
@@ -138,19 +138,22 @@ def main():
     hub_schema = hub_to_dir_schema_s3_tuple[hub_name][1]
     hub_s3_bucket = hub_to_dir_schema_s3_tuple[hub_name][2]  # None if hub not cloud-enabled
 
-    print(f"main(): entered. {hub_name=}, {hub_path=}, hub_schema:\n{hub_schema}")
+    print(f"main(): entered. {hub_name=}, {hub_path=}, {hub_s3_bucket=}, hub_schema:\n{hub_schema}")
     with open(hub_path / 'hub-config/admin.json') as fp:
         admin_dict = json.load(fp)
         model_output_dir = admin_dict['model_output_dir'] if 'model_output_dir' in admin_dict else 'model-output'
-        hub_ds = make_path_dataset(hub_path / model_output_dir, hub_schema, admin_dict['file_format'])
+        # hub_ds = make_path_dataset(hub_path, model_output_dir, hub_schema, admin_dict['file_format'])
+        hub_ds = make_s3_dataset(hub_s3_bucket, model_output_dir, hub_schema)
         print_dataset(hub_ds)
         try_polars(hub_ds)
 
 
-def make_path_dataset(model_output_path: Path, hub_schema: pa.Schema, file_formats: list[str]) -> pa.dataset.Dataset:
+def make_path_dataset(hub_path: Path, model_output_dir: str, hub_schema: pa.Schema, file_formats: list[str]) \
+        -> pa.dataset.Dataset:
     # create the dataset. NB: we are using dataset "directory partitioning" to automatically get the `model_id` column
     # from directory names. NB: each dataset is a pyarrow._dataset.FileSystemDataset (so far!)
-    print(f"make_dataset(): entered")
+    print(f"make_path_dataset(): entered")
+    model_output_path = hub_path / model_output_dir
     datasets = [ds.dataset(model_output_path, format=file_format, partitioning=['model_id'], exclude_invalid_files=True,
                            schema=hub_schema)
                 for file_format in file_formats]
@@ -158,25 +161,38 @@ def make_path_dataset(model_output_path: Path, hub_schema: pa.Schema, file_forma
                        if isinstance(dataset, pa.dataset.FileSystemDataset) and (len(dataset.files) != 0)])
 
 
+def make_s3_dataset(hub_s3_bucket: str, model_output_dir: str, hub_schema: pa.Schema) -> pa.dataset.Dataset:
+    print(f"make_s3_dataset(): entered")
+    s3_url = f"s3://{hub_s3_bucket}/{model_output_dir}/"
+    return ds.dataset(s3_url, format='parquet', partitioning=['model_id'], exclude_invalid_files=True,
+                      schema=hub_schema)
+
+
 def print_dataset(hub_ds: pa.dataset.Dataset):
+    def _print_FileSystemDataset(dataset: pa.dataset.FileSystemDataset):
+        print(f"\n** {dataset=} ({len(dataset.files)})")
+
+        head_count = 3
+        files = dataset.files if len(dataset.files) <= head_count * 2 \
+            else dataset.files[:head_count] + ['...'] + dataset.files[-head_count:]
+        for file in files:
+            print(f"{file!r}")
+
+
     print(f"print_dataset(): entered")
 
     print('\n* dataset')
     print(hub_ds)
 
-    print('\n* schema')
+    print(f"\n* schema={hub_ds.schema!r}")
     print(hub_ds.schema.to_string(show_field_metadata=False))
 
     print(f"\n* files")
     if isinstance(hub_ds, pa.dataset.UnionDataset):
         for child_ds in hub_ds.children:  # each dataset is a pyarrow._dataset.FileSystemDataset (so far!)
-            print(f"\n** {child_ds=} ({len(child_ds.files)})")
-
-            head_count = 3
-            files = child_ds.files if len(child_ds.files) <= head_count * 2 \
-                else child_ds.files[:head_count] + ['...'] + child_ds.files[-head_count:]
-            for file in files:
-                print(f"{file!r}")
+            _print_FileSystemDataset(child_ds)
+    elif isinstance(hub_ds, pa.dataset.FileSystemDataset):
+        _print_FileSystemDataset(hub_ds)
     else:
         print(f"can't handle dataset of type '{type(hub_ds)}'. {hub_ds=}")
 
