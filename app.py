@@ -148,9 +148,9 @@ def main():
                            -> PROB: for the `output_type_id` column, it's apparently inferring a schema based on some sample from the head before that row
     """
 
-    # hub_name = 'flusight'  # .csv, .parquet, and .arrow (!). [292 rows x 8 columns]
+    hub_name = 'flusight'  # .csv, .parquet, and .arrow (!). [292 rows x 8 columns]
     # hub_name = 'parquet'  # .parquet . [599 rows x 9 columns]
-    hub_name = 'ecfh'  # .csv . [553264 rows x 9 columns] (0.5M)
+    # hub_name = 'ecfh'  # .csv . [553264 rows x 9 columns] (0.5M)
     # hub_name = 'flusight_archive'  # .parquet . [29364474 rows x 9 columns] (29M)
     # hub_name = 'flusight_fhub'  # .csv . [5812608 rows x 9 columns] (5M)
 
@@ -164,28 +164,16 @@ def main():
     with open(hub_path / 'hub-config/admin.json') as fp:
         admin_dict = json.load(fp)
         model_output_dir = admin_dict['model_output_dir'] if 'model_output_dir' in admin_dict else 'model-output'
-        hub_ds = make_dataset(hub_path / model_output_dir, hub_schema)
+        hub_ds = make_dataset(hub_path / model_output_dir, hub_schema, admin_dict['file_format'])
         print_dataset(hub_ds)
 
 
-def make_dataset(model_output_path: Path, hub_schema: pa.Schema) -> pa.dataset.Dataset:
+def make_dataset(model_output_path: Path, hub_schema: pa.Schema, file_formats: list[str]) -> pa.dataset.Dataset:
     # create the dataset. NB: we are using dataset "directory partitioning" to automatically get the `model_id` column
-    # from directory names
-
-    # each is a pyarrow._dataset.FileSystemDataset (so far!)
-    datasets = [ds.dataset(model_output_path, format=format, partitioning=['model_id'], exclude_invalid_files=True,
-                           schema=hub_schema) for format in ['csv', 'parquet', 'arrow']]
-
-    # print('datasets', [_.files for _ in datasets])
-    # [['/Users/cornell/IdeaProjects/hubUtils/inst/testhubs/flusight/forecasts/hub-baseline/2023-04-24-hub-baseline.csv',
-    #   '/Users/cornell/IdeaProjects/hubUtils/inst/testhubs/flusight/forecasts/hub-baseline/2023-05-01-hub-baseline.csv',
-    #   '/Users/cornell/IdeaProjects/hubUtils/inst/testhubs/flusight/forecasts/hub-ensemble/2023-04-24-hub-ensemble.csv',
-    #   '/Users/cornell/IdeaProjects/hubUtils/inst/testhubs/flusight/forecasts/umass_ens/2023-05-01-umass_ens.csv',
-    #   '/Users/cornell/IdeaProjects/hubUtils/inst/testhubs/flusight/forecasts/umass_ens/2023-05-08-umass_ens.csv'],
-    #  ['/Users/cornell/IdeaProjects/hubUtils/inst/testhubs/flusight/forecasts/hub-baseline/2023-05-08-hub-baseline.parquet',
-    #   '/Users/cornell/IdeaProjects/hubUtils/inst/testhubs/flusight/forecasts/hub-ensemble/2023-05-08-hub-ensemble.parquet'],
-    #  ['/Users/cornell/IdeaProjects/hubUtils/inst/testhubs/flusight/forecasts/hub-ensemble/2023-05-01-hub-ensemble.arrow']]
-
+    # from directory names. NB: each dataset is a pyarrow._dataset.FileSystemDataset (so far!)
+    datasets = [ds.dataset(model_output_path, format=file_format, partitioning=['model_id'], exclude_invalid_files=True,
+                           schema=hub_schema)
+                for file_format in file_formats]
     return ds.dataset([dataset for dataset in datasets
                        if isinstance(dataset, pa.dataset.FileSystemDataset) and (len(dataset.files) != 0)])
 
@@ -199,13 +187,14 @@ def print_dataset(hub_ds: pa.dataset.Dataset):
 
     print(f"\n* files")
     if isinstance(hub_ds, pa.dataset.UnionDataset):
-        for child_ds in hub_ds.children:
+        for child_ds in hub_ds.children:  # each dataset is a pyarrow._dataset.FileSystemDataset (so far!)
             print(f"\n** {child_ds=} ({len(child_ds.files)})")
-            max_num_files = 10
-            for file in child_ds.files[:max_num_files]:
+
+            head_count = 3
+            files = child_ds.files if len(child_ds.files) <= head_count * 2 \
+                else child_ds.files[:head_count] + ['...'] + child_ds.files[-head_count:]
+            for file in files:
                 print(f"{file!r}")
-            if len(child_ds.files) > max_num_files:
-                print("...")
     else:
         print(f"can't handle dataset of type '{type(hub_ds)}'. {hub_ds=}")
 

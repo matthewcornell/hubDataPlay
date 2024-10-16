@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "817b161a4938d2115120a7209e7fb3c79dcc85276b299e10107f3ab409176124"
+            "sha256": "9c77cdd2e720a1d5813531fd6355e4ee1ade811059bbfa8f49da9f0637ce14a0"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -116,6 +116,19 @@
             "index": "pypi",
             "markers": "python_version >= '3.9'",
             "version": "==2.2.3"
+        },
+        "polars": {
+            "hashes": [
+                "sha256:8e1206ef876f61c1d50a81e102611ea92ee34631cb135b46ad314bfefd3cb122",
+                "sha256:94b12d731cd200d2c50b13fc070d6353f708e632bca6529c5a72aa6a69e5285d",
+                "sha256:95de07066cd797dd940fa2783708a7bef93c827a57be0f4dfad3575a6144212b",
+                "sha256:a471d2ce96f6fa5dd0ef16bcdb227f3dbe3af8acb776ca52f9e64ef40c7489a0",
+                "sha256:f753c8941a3b3249d59262d68a856714a96a7d4e16977aefbb196be0c192e151",
+                "sha256:f85f132732aa63c6f3b502b0fdfc3ba9f0b78cc6330059b5a2d6f9fd78508acb"
+            ],
+            "index": "pypi",
+            "markers": "python_version >= '3.9'",
+            "version": "==1.9.0"
         },
         "pyarrow": {
             "hashes": [
